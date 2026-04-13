@@ -8,148 +8,17 @@ import java.lang.reflect.Field;
 import java.util.function.Function;
 
 /**
- * JRef/Json Pointer serialization. See serialize and deserialize functions below
+ * JRef/Json Pointer serialization. See serialize and deserialize methods below
  * 
  * @copyright: Jason Desrosiers <jdesrosi@gmail.com> and Scott Lewis <scottslewis@gmail.com>
  */
-public class JRef {
+public class JRef implements Serializer, Deserializer {
 
     // Type aliases / Constants
-    private static final String nil = "";
     private static final String _REF_KEY = "$ref";
 
-    /**
-     * Splits a JSON Pointer string into its individual segments.
-     * 
-     * @param pointer The JSON Pointer string.
-     * @return An Iterable of unescaped segments.
-     */
-    public static Iterable<String> pointerSegments(String pointer) {
-        if (pointer.length() > 0 && !pointer.startsWith("/")) {
-            throw new IllegalArgumentException("Invalid JSON Pointer");
-        }
-
-        List<String> segments = new ArrayList<>();
-        int segmentStart = 1;
-        int segmentEnd;
-
-        while (segmentStart <= pointer.length()) {
-            int position = pointer.indexOf("/", segmentStart);
-            segmentEnd = (position == -1) ? pointer.length() : position;
-            String segment = pointer.substring(segmentStart, segmentEnd);
-            segmentStart = segmentEnd + 1;
-
-            segments.add(unescape(segment));
-            
-            // If the pointer ended with a '/', we need to add an empty segment for the trailing slash
-            if (position != -1 && segmentStart > pointer.length()) {
-                segments.add("");
-            }
-        }
-        
-        return segments;
-    }
-
-    /**
-     * Retrieves a value from a JSON structure using a pointer.
-     * If subject is null, returns a Function (Getter) that takes a subject.
-     */
-    public static Object get(String pointer, Object subject) {
-        if (subject == null) {
-            final List<String> segments = new ArrayList<>();
-            pointerSegments(pointer).forEach(segments::add);
-            return (Function<Object, Object>) (Object s) -> _get(segments, s);
-        } else {
-            return _get(pointerSegments(pointer), subject);
-        }
-    }
-
-    private static Object _get(Iterable<String> segments, Object subject) {
-        String cursor = nil;
-        for (String segment : segments) {
-            subject = applySegment(subject, segment, cursor);
-            cursor = append(segment, cursor);
-        }
-        return subject;
-    }
-
-    public static String append(Object segment, String pointer) {
-        return pointer + "/" + escape(String.valueOf(segment));
-    }
-
-    public static String escape(String segment) {
-        return segment.replace("~", "~0").replace("/", "~1");
-    }
-
-    public static String unescape(String segment) {
-        return segment.replace("~1", "/").replace("~0", "~");
-    }
-
-    public static Object computeSegment(Object value, String segment) {
-        if (value instanceof List) {
-            return "-".equals(segment) ? ((List<?>) value).size() : Integer.parseInt(segment);
-        } else {
-            return segment;
-        }
-    }
-
-    public static Object applySegment(Object value, Object segment, String cursor) {
-        if (value == null) {
-            throw new RuntimeException(String.format("Value at '%s' is %s and does not have property '%s'", 
-                cursor, (cursor.isEmpty() ? "null" : "undefined"), segment));
-        } else if (isScalar(value)) {
-            String valueType = value.getClass().getSimpleName().toLowerCase();
-            throw new RuntimeException(String.format("Value at '%s' is a %s and does not have property '%s'", 
-                cursor, valueType, segment));
-        } else {
-            Object computedSegment = computeSegment(value, String.valueOf(segment));
-            if (value instanceof Map) {
-                Map<?, ?> map = (Map<?, ?>) value;
-                if (map.containsKey(computedSegment)) {
-                    return map.get(computedSegment);
-                }
-            } else if (value instanceof List) {
-                List<?> list = (List<?>) value;
-                if (computedSegment instanceof Integer) {
-                    int index = (Integer) computedSegment;
-                    if (index >= 0 && index < list.size()) {
-                        return list.get(index);
-                    }
-                }
-            }
-            return null;
-        }
-    }
-
-    /**
-     * Check if a value is a scalar (not an object or array).
-     */
-    public static boolean isScalar(Object value) {
-        return value == null || !(value instanceof Map || value instanceof List);
-    }
-
-    private static String encode_uri(String uri) {
-        try {
-        	return new URI(uri).toASCIIString().replace("+", "%20");
-        } catch (Exception e) {
-        	throw new RuntimeException(e);
-        }
-    }
-
-    private static String decode_uri(String uri) {
-        try {
-            return URLDecoder.decode(uri, StandardCharsets.UTF_8.toString());
-        } catch (Exception e) {
-            return uri;
-        }
-    }
-
-    private static Map<String, Object> _build_ptr(String uri) {
-        Map<String, Object> map = new HashMap<>();
-        map.put(_REF_KEY, "#" + encode_uri(uri));
-        return map;
-    }
-
+    public JRef() {}
+    
     /**
      * serialize java object graph to dict representation
      * 
@@ -158,11 +27,11 @@ public class JRef {
      * the object contents, and all subsequent references will
      * use jref/json pointer to refer to the first serialized instance
      */
-    public static Object serialize(Object subject) {
+    public Object serialize(Object subject) {
         return serialize(subject, new HashMap<>(), "", "name", JRef::_build_ptr);
     }
 
-    public static Object serialize(Object subject, 
+    protected Object serialize(Object subject, 
                                    Map<Object, String> pointers, 
                                    String location, 
                                    String objectnamefield,
@@ -247,30 +116,12 @@ public class JRef {
         }
     }
 
-    /**
-     * Helper to convert POJO fields to a Map, simulating Python's __dict__
-     */
-    private static Map<String, Object> getObjectAsMap(Object obj) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        Class<?> curr = obj.getClass();
-        while (curr != null && curr != Object.class) {
-            for (Field field : curr.getDeclaredFields()) {
-                field.setAccessible(true);
-                try {
-                    map.put(field.getName(), field.get(obj));
-                } catch (IllegalAccessException ignored) {}
-            }
-            curr = curr.getSuperclass();
-        }
-        return map;
-    }
-
-    public static Object deserialize(Object subject) {
+    public Object deserialize(Object subject) {
         return deserialize(subject, null, "");
     }
 
     @SuppressWarnings("unchecked")
-    public static Object deserialize(Object subject, Object root, String location) {
+    protected Object deserialize(Object subject, Object root, String location) {
         if (subject == null || subject instanceof Boolean || subject instanceof Number || subject instanceof String) {
             return subject;
         }
@@ -312,8 +163,6 @@ public class JRef {
         }
 
         // Handle generic objects (Reflection)
-        // Note: Python code: subject[key] = deserialize(...) implies subject is dict-like
-        // or has __setitem__. In Java POJOs, we update fields.
         Class<?> curr = subject.getClass();
         while (curr != null && curr != Object.class) {
             for (Field field : curr.getDeclaredFields()) {
@@ -321,12 +170,168 @@ public class JRef {
                 try {
                     Object value = field.get(subject);
                     field.set(subject, deserialize(value, root, append(field.getName(), location)));
-                } catch (IllegalAccessException ignored) {}
+                } catch (IllegalAccessException e) {
+                	throw new RuntimeException("Error setting field=" + field.getName() + " on subject=" + subject, e);
+                }
             }
             curr = curr.getSuperclass();
         }
 
         return subject;
     }
+
+    /////////////////////////// Support methods //////////////////////
+    /**
+     * Splits a JSON Pointer string into its individual segments.
+     * 
+     * @param pointer The JSON Pointer string.
+     * @return An Iterable of unescaped segments.
+     */
+    protected Iterable<String> pointerSegments(String pointer) {
+        if (pointer.length() > 0 && !pointer.startsWith("/")) {
+            throw new IllegalArgumentException("Invalid JSON Pointer");
+        }
+
+        List<String> segments = new ArrayList<>();
+        int segmentStart = 1;
+        int segmentEnd;
+
+        while (segmentStart <= pointer.length()) {
+            int position = pointer.indexOf("/", segmentStart);
+            segmentEnd = (position == -1) ? pointer.length() : position;
+            String segment = pointer.substring(segmentStart, segmentEnd);
+            segmentStart = segmentEnd + 1;
+
+            segments.add(unescape(segment));
+            
+            // If the pointer ended with a '/', we need to add an empty segment for the trailing slash
+            if (position != -1 && segmentStart > pointer.length()) {
+                segments.add("");
+            }
+        }
+        
+        return segments;
+    }
+
+    /**
+     * Retrieves a value from a JSON structure using a pointer.
+     * If subject is null, returns a Function (Getter) that takes a subject.
+     */
+    protected Object get(String pointer, Object subject) {
+        if (subject == null) {
+            final List<String> segments = new ArrayList<>();
+            pointerSegments(pointer).forEach(segments::add);
+            return (Function<Object, Object>) (Object s) -> _get(segments, s);
+        } else {
+            return _get(pointerSegments(pointer), subject);
+        }
+    }
+
+    protected Object _get(Iterable<String> segments, Object subject) {
+        String cursor = "";
+        for (String segment : segments) {
+            subject = applySegment(subject, segment, cursor);
+            cursor = append(segment, cursor);
+        }
+        return subject;
+    }
+
+    protected String append(Object segment, String pointer) {
+        return pointer + "/" + escape(String.valueOf(segment));
+    }
+
+    protected String escape(String segment) {
+        return segment.replace("~", "~0").replace("/", "~1");
+    }
+
+    protected String unescape(String segment) {
+        return segment.replace("~1", "/").replace("~0", "~");
+    }
+
+    protected Object computeSegment(Object value, String segment) {
+        if (value instanceof List) {
+            return "-".equals(segment) ? ((List<?>) value).size() : Integer.parseInt(segment);
+        } else {
+            return segment;
+        }
+    }
+
+    protected Object applySegment(Object value, Object segment, String cursor) {
+        if (value == null) {
+            throw new RuntimeException(String.format("Value at '%s' is %s and does not have property '%s'", 
+                cursor, (cursor.isEmpty() ? "null" : "undefined"), segment));
+        } else if (isScalar(value)) {
+            String valueType = value.getClass().getSimpleName().toLowerCase();
+            throw new RuntimeException(String.format("Value at '%s' is a %s and does not have property '%s'", 
+                cursor, valueType, segment));
+        } else {
+            Object computedSegment = computeSegment(value, String.valueOf(segment));
+            if (value instanceof Map) {
+                Map<?, ?> map = (Map<?, ?>) value;
+                if (map.containsKey(computedSegment)) {
+                    return map.get(computedSegment);
+                }
+            } else if (value instanceof List) {
+                List<?> list = (List<?>) value;
+                if (computedSegment instanceof Integer) {
+                    int index = (Integer) computedSegment;
+                    if (index >= 0 && index < list.size()) {
+                        return list.get(index);
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Check if a value is a scalar (not an object or array).
+     */
+    protected boolean isScalar(Object value) {
+        return value == null || !(value instanceof Map || value instanceof List);
+    }
+
+    private static String encode_uri(String uri) {
+        try {
+        	return new URI(uri).toASCIIString().replace("+", "%20");
+        } catch (Exception e) {
+        	throw new RuntimeException(e);
+        }
+    }
+
+    private static String decode_uri(String uri) {
+        try {
+            return URLDecoder.decode(uri, StandardCharsets.UTF_8.toString());
+        } catch (Exception e) {
+            return uri;
+        }
+    }
+
+    private static Map<String, Object> _build_ptr(String uri) {
+        Map<String, Object> map = new HashMap<>();
+        map.put(_REF_KEY, "#" + encode_uri(uri));
+        return map;
+    }
+
+    /**
+     * Helper to convert POJO fields to a Map, simulating Python's __dict__
+     */
+    private static Map<String, Object> getObjectAsMap(Object obj) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        Class<?> curr = obj.getClass();
+        while (curr != null && curr != Object.class) {
+            for (Field field : curr.getDeclaredFields()) {
+                field.setAccessible(true);
+                try {
+                    map.put(field.getName(), field.get(obj));
+                } catch (IllegalAccessException e) {
+                	throw new RuntimeException("Field=" + field.getName() + " cannot be set", e);
+                }
+            }
+            curr = curr.getSuperclass();
+        }
+        return map;
+    }
+
 }
 
