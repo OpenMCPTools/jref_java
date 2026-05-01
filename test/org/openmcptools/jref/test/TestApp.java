@@ -30,10 +30,10 @@ public class TestApp {
 		// Assign child object to two different fields
 		var data = Map.of("foo", ziggy, "bar", ziggy, "x", bob, "y", bob);
 		System.out.println("data=" + data);
-		var s = jref.serialize(data);
-		System.out.println("serialized data=" + s);
-		var ds = jref.deserialize(s);
-		System.out.println("deserialized data=" + ds);
+		var s = jref.buildRefs(data);
+		System.out.println("output=" + s);
+		var ds = jref.resolveRefs(s);
+		System.out.println("resolved=" + ds);
 	}
 
 }

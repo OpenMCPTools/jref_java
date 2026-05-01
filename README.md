@@ -36,28 +36,28 @@ data={foo=org.openmcptools.jref.JRef$Human@66048bfd, x=org.openmcptools.jref.JRe
 Serialize
 
 ```java
-var s = jref.serialize(data);
-System.out.println("serialized data="+s);
+var s = jref.buildRefs(data);
+System.out.println("output="+s);
 ```
 
 Console Output
 
 ```console
-serialized data={foo={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}, x={$ref=#/foo/parent}, y={$ref=#/foo/parent}, bar={$ref=#/foo}}
+output={foo={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}, x={$ref=#/foo/parent}, y={$ref=#/foo/parent}, bar={$ref=#/foo}}
 // $refs used to reference Human instances
 ```
 
 Deserialize
 
 ```java
-var ds = jref.deserialize(s);
-System.out.println("deserialized data=" + ds);
+var ds = jref.resolveRefs(s);
+System.out.println("resolved=" + ds);
 ```
 
 Console Ouptut
 
 ```console
-deserialized data={foo={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}, x={first=Bob, last=Marley, parent=null}, y={first=Bob, last=Marley, parent=null}, bar={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}}
+resolved={foo={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}, x={first=Bob, last=Marley, parent=null}, y={first=Bob, last=Marley, parent=null}, bar={first=Ziggy, last=Marley, parent={first=Bob, last=Marley, parent=null}}}
 
 ```
 
